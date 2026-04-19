@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# 仮想環境
+.venv/
+venv/
+env/
+ENV/
+
+# 自動生成ファイル（初回実行時に生成される）
+resolved_logs.xlsx
+syslog_this_week.xlsx
+known_vecs.npz
+unknown_logs_*.xlsx
+
+# OS
+.DS_Store
+Thumbs.db
+
+# エディタ
+.vscode/
+.idea/
+*.swp
