@@ -24,6 +24,7 @@ import numpy as np
 import openpyxl
 import pandas as pd
 import torch
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 from sentence_transformers import SentenceTransformer, util
@@ -88,6 +89,8 @@ def normalize_syslog(line: str) -> str:
     # 1. タイムスタンプ（ISO8601 / Cisco形式など）
     s = re.sub(r"\b\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}\b", "<TS>", s)
     s = re.sub(r"\b[A-Z][a-z]{2}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\b", "<TS>", s)
+    # 2. MACアドレス — IPv6より先に処理（aa:bb:cc:dd:ee:ff がIPv6パターンにも一致するため）
+    s = re.sub(r"\b(?:[0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}\b", "<MAC>", s)
     # 2a. IPv6アドレス — IPv4より先に処理（コロンが混在するため）
     #     プレースホルダーは <IPV> とする（<IP6> は後段で6が<NUM>置換されるため）
     s = re.sub(r"\b(?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}\b", "<IPV>", s)
@@ -95,8 +98,6 @@ def normalize_syslog(line: str) -> str:
     s = re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "<IP>", s)
     # 2c. プロセスID（kernel[12345]: / sshd[678]: など）コロンも含めて除去
     s = re.sub(r"\b\w+\[\d+\]:", "<PROC>", s)
-    # 3. MACアドレス
-    s = re.sub(r"\b(?:[0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}\b", "<MAC>", s)
     # 4. インターフェース名（GigabitEthernet0/1 → <IF>）
     s = re.sub(r"\b(?:GigabitEthernet|FastEthernet|Eth|Te|Ge)\d+(?:/\d+)*\b", "<IF>", s)
     # 5. 16進数
@@ -230,7 +231,8 @@ class UnknownDetector:
         instance.batch_size = batch_size
         instance.known_normed = data["normed"].tolist()
         instance.log_ids = data["ids"].tolist()
-        instance.known_vecs = torch.tensor(data["vecs"])
+        # encode() の出力と同じデバイスに載せる（GPU環境で cos_sim / cat のデバイス不一致を防ぐ）
+        instance.known_vecs = torch.tensor(data["vecs"]).to(instance.model.device)
         print(f"[INFO] キャッシュから復元しました: {cache_path}  ({len(instance.log_ids)} 件)")
         return instance
 
@@ -537,7 +539,11 @@ def export_unknowns_to_excel(results: list[dict[str, Any]], output_path: str | N
     Notes
     -----
     openpyxl の PatternFill に渡す色は RRGGBB 形式（6桁）で指定する。
+    ログ中の制御文字（ANSIエスケープ・NUL 等）は Excel に書き込めないため除去して出力する。
     """
+    def _clean(v: Any) -> Any:
+        return ILLEGAL_CHARACTERS_RE.sub("", v) if isinstance(v, str) else v
+
     if output_path is None:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_path = f"unknown_logs_{ts}.xlsx"
@@ -581,7 +587,7 @@ def export_unknowns_to_excel(results: list[dict[str, Any]], output_path: str | N
                 r["score"],
                 r["score_top1"],
                 r["nearest_id"],
-                r["raw"],
+                _clean(r["raw"]),
             ])
             fill = fill_strong if r["decision"] == "unknown_strong" else fill_review
             for cell in ws_sum[ws_sum.max_row]:
@@ -627,7 +633,7 @@ def export_unknowns_to_excel(results: list[dict[str, Any]], output_path: str | N
             row = [r["decision"], round(r["score"], 4), r["nearest_id"], r["nearest"], r["raw"]]
             fill = fill_strong if r["decision"] == "unknown_strong" else fill_review
 
-        ws_detail.append(row)
+        ws_detail.append([_clean(v) for v in row])
         for cell in ws_detail[ws_detail.max_row]:
             cell.fill = fill
 
