@@ -181,6 +181,21 @@ detector = UnknownDetector(
 
 ---
 
+## テスト
+
+```bash
+pip install pytest
+pytest tests
+```
+
+`tests/gen_test_syslog.py` で正解ラベル付きのテスト用 Syslog（5000 行、known / review / strong）を生成できます。
+
+```bash
+python tests/gen_test_syslog.py <出力先ディレクトリ>
+```
+
+---
+
 ## Reference
 
 - Qiita: https://qiita.com/kkae1278
